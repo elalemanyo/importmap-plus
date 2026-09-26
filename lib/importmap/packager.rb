@@ -42,6 +42,18 @@ class Importmap::Packager
       "%w[#{map { |word| word.gsub(/[\s\\\[\]]/) { "\\#{$&}" } }.join(" ")}]"
     end
   end
+  # A quoted preload read from a pin — a string or a bracketed array — keeps
+  # the literal it was read from, and a rewrite writes that back untouched.
+  # The names are read with only the simple escapes; the rest of Ruby's string
+  # semantics ("\u0061pp", "#{prefix}app") is Ruby's to evaluate, so writing
+  # the value read back through inspect would change the entry point.
+  module Literal # :nodoc:
+    attr_accessor :source
+
+    def self.of(value, source)
+      value.extend(self).tap { |literal| literal.source = source }
+    end
+  end
   TO_OPTION_REGEXP = /to:\s*["']([^"']*)["']/.freeze # :nodoc:
   # Only the booleans: a hash string is tied to the file it was computed for,
   # so a rewrite that changes the URL has to drop it.
@@ -568,15 +580,16 @@ class Importmap::Packager
         # config/importmap.rb is Ruby, not JSON, and a single-quoted pin is a
         # supported shape here, so the entry points are scanned out of the
         # literal rather than parsed. JSON.parse raised on every one of them.
-        value.scan(QUOTED_STRING_REGEXP).map { |double, single| unquote(double, single) }
+        Literal.of(value.scan(QUOTED_STRING_REGEXP).map { |double, single| unquote(double, single) }, value)
       else
-        unquote(*value.match(/\A#{QUOTED_STRING_REGEXP}\z/).captures)
+        Literal.of(unquote(*value.match(/\A#{QUOTED_STRING_REGEXP}\z/).captures), value)
       end
     end
 
     # A single-quoted string unescapes only \\ and \'. In a double-quoted one
     # a backslash before any character an entry point would hold is that
-    # character, which is all a preload name needs.
+    # character, which is all a preload name needs. The value is only read;
+    # a rewrite writes the Literal's source.
     def unquote(double, single)
       double ? double.gsub(/\\(.)/m, '\1') : single.gsub(/\\([\\'])/, '\1')
     end
@@ -587,6 +600,7 @@ class Importmap::Packager
       # has to be read before it.
       return "" if preloads.nil?
       return %(, preload: #{preloads}) if preloads.is_a?(WordArray)
+      return %(, preload: #{preloads.source}) if preloads.is_a?(Literal)
 
       case Array(preloads)
       in []

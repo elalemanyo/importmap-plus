@@ -1426,7 +1426,7 @@ class Importmap::PackagerTest < ActiveSupport::TestCase
     PINS
     packager = Importmap::Packager.new(temp_importmap)
 
-    assert_equal %(pin "package1", preload: ["admin", "app"]),
+    assert_equal %(pin "package1", preload: ['admin', 'app']),
                  packager.pin_for("package1", preloads: extract_options_for_package(packager, "package1")[:preload])
     assert_equal %(pin "package2", preload: []),
                  packager.pin_for("package2", preloads: extract_options_for_package(packager, "package2")[:preload])
@@ -1538,6 +1538,22 @@ class Importmap::PackagerTest < ActiveSupport::TestCase
 
       assert_equal preloads, eval(written[/preload: (.*)\z/, 1]), written
     end
+  end
+
+  test "a quoted preload is written back as the literal the app wrote, Ruby escapes and interpolation intact" do
+    temp_importmap = create_temp_importmap(<<~'PINS')
+      pin "package1", preload: "\u0061pp" # @1.0.0
+      pin "package2", preload: "#{prefix}app"
+      pin "package3", preload: ["\x61dmin", 'app', "#{prefix}app"], integrity: true
+    PINS
+    packager = Importmap::Packager.new(temp_importmap)
+
+    assert_equal %q(pin "package1", preload: "\u0061pp" # @1.0.1),
+                 packager.vendored_pin_for("package1", "https://cdn/package1@1.0.1", extract_options_for_package(packager, "package1")[:preload])
+    assert_equal %q(pin "package2", preload: "#{prefix}app"),
+                 packager.pin_for("package2", preloads: extract_options_for_package(packager, "package2")[:preload])
+    assert_equal %q(pin "package3", preload: ["\x61dmin", 'app', "#{prefix}app"]),
+                 packager.pin_for("package3", preloads: extract_options_for_package(packager, "package3")[:preload])
   end
 
   private
